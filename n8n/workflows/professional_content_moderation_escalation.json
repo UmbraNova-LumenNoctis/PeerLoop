@@ -1,0 +1,416 @@
+{
+  "name": "PeerLoop - Content Moderation Escalation",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "peers/moderation-events",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Moderation Event Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        120,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const payload = $json.body ?? $json;\n\nconst required = ['reportId', 'contentType', 'contentId', 'reason', 'severity'];\nconst missing = required.filter((field) => {\n  const value = payload[field];\n  return value === undefined || value === null || String(value).trim() === '';\n});\n\nif (missing.length > 0) {\n  throw new Error(`Invalid moderation payload: missing ${missing.join(', ')}`);\n}\n\nconst severity = String(payload.severity).toLowerCase().trim();\nconst allowed = ['low', 'medium', 'high', 'critical'];\nif (!allowed.includes(severity)) {\n  throw new Error(`Invalid severity: ${severity}. Allowed: ${allowed.join(', ')}`);\n}\n\nconst correlationId = payload.correlationId && String(payload.correlationId).trim()\n  ? String(payload.correlationId).trim()\n  : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;\n\nreturn [{\n  json: {\n    reportId: String(payload.reportId).trim(),\n    contentType: String(payload.contentType).trim(),\n    contentId: String(payload.contentId).trim(),\n    reportedBy: payload.reportedBy ? String(payload.reportedBy).trim() : 'unknown',\n    reason: String(payload.reason).trim(),\n    severity,\n    description: payload.description ? String(payload.description) : '',\n    createdAt: payload.createdAt ? String(payload.createdAt) : new Date().toISOString(),\n    correlationId,\n    escalated: severity === 'high' || severity === 'critical',\n    autoAction: severity === 'critical'\n  }\n}];"
+      },
+      "id": "2",
+      "name": "Validate & Normalize Moderation Event",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        390,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_MODERATION_NOTIFICATION_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Moderation Notify Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        660,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_MODERATION_NOTIFICATION_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'moderation_alert', reportId: $node['Validate & Normalize Moderation Event'].json.reportId, severity: $node['Validate & Normalize Moderation Event'].json.severity, escalated: $node['Validate & Normalize Moderation Event'].json.escalated, message: '[Moderation][' + $node['Validate & Normalize Moderation Event'].json.severity.toUpperCase() + '] ' + $node['Validate & Normalize Moderation Event'].json.contentType + '#' + $node['Validate & Normalize Moderation Event'].json.contentId + ' reason=' + $node['Validate & Normalize Moderation Event'].json.reason, correlationId: $node['Validate & Normalize Moderation Event'].json.correlationId }) }}"
+      },
+      "id": "4",
+      "name": "Notify Moderation Team",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        950,
+        160
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "moderationNotifyStatus",
+              "value": "skipped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5",
+      "name": "Mark Moderation Notify Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        950,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_MODERATION_CASE_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "Case Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_MODERATION_CASE_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'moderation_case_create', reportId: $node['Validate & Normalize Moderation Event'].json.reportId, contentType: $node['Validate & Normalize Moderation Event'].json.contentType, contentId: $node['Validate & Normalize Moderation Event'].json.contentId, reportedBy: $node['Validate & Normalize Moderation Event'].json.reportedBy, reason: $node['Validate & Normalize Moderation Event'].json.reason, description: $node['Validate & Normalize Moderation Event'].json.description, severity: $node['Validate & Normalize Moderation Event'].json.severity, escalated: $node['Validate & Normalize Moderation Event'].json.escalated, createdAt: $node['Validate & Normalize Moderation Event'].json.createdAt, correlationId: $node['Validate & Normalize Moderation Event'].json.correlationId }) }}"
+      },
+      "id": "7",
+      "name": "Create Moderation Case",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1530,
+        160
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "caseStatus",
+              "value": "skipped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8",
+      "name": "Mark Case Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1530,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{($node['Validate & Normalize Moderation Event'].json.autoAction ? 'true' : 'false')}}",
+              "operation": "equal",
+              "value2": "true"
+            },
+            {
+              "value1": "={{$env.N8N_MODERATION_ACTION_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "Auto Action Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1810,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_MODERATION_ACTION_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'moderation_auto_action', action: 'hide_content', contentType: $node['Validate & Normalize Moderation Event'].json.contentType, contentId: $node['Validate & Normalize Moderation Event'].json.contentId, reason: $node['Validate & Normalize Moderation Event'].json.reason, severity: $node['Validate & Normalize Moderation Event'].json.severity, reportId: $node['Validate & Normalize Moderation Event'].json.reportId, correlationId: $node['Validate & Normalize Moderation Event'].json.correlationId }) }}"
+      },
+      "id": "10",
+      "name": "Apply Critical Auto Action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        160
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "autoActionStatus",
+              "value": "skipped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "11",
+      "name": "Mark Auto Action Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        2100,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 202,
+        "responseBody": "={{ ({ status: 'accepted', reportId: $node['Validate & Normalize Moderation Event'].json.reportId, severity: $node['Validate & Normalize Moderation Event'].json.severity, escalated: $node['Validate & Normalize Moderation Event'].json.escalated, autoActionAttempted: true, correlationId: $node['Validate & Normalize Moderation Event'].json.correlationId }) }}"
+      },
+      "id": "12",
+      "name": "Respond Moderation Auto Action Attempted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2380,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 202,
+        "responseBody": "={{ ({ status: 'accepted', reportId: $node['Validate & Normalize Moderation Event'].json.reportId, severity: $node['Validate & Normalize Moderation Event'].json.severity, escalated: $node['Validate & Normalize Moderation Event'].json.escalated, autoActionAttempted: false, correlationId: $node['Validate & Normalize Moderation Event'].json.correlationId }) }}"
+      },
+      "id": "13",
+      "name": "Respond Moderation Completed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2380,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "Moderation Event Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Normalize Moderation Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Normalize Moderation Event": {
+      "main": [
+        [
+          {
+            "node": "Moderation Notify Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Moderation Notify Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Notify Moderation Team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Moderation Notify Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Moderation Team": {
+      "main": [
+        [
+          {
+            "node": "Case Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Moderation Notify Skipped": {
+      "main": [
+        [
+          {
+            "node": "Case Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Case Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Create Moderation Case",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Case Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Moderation Case": {
+      "main": [
+        [
+          {
+            "node": "Auto Action Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Case Skipped": {
+      "main": [
+        [
+          {
+            "node": "Auto Action Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto Action Needed?": {
+      "main": [
+        [
+          {
+            "node": "Apply Critical Auto Action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Auto Action Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Critical Auto Action": {
+      "main": [
+        [
+          {
+            "node": "Respond Moderation Auto Action Attempted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Auto Action Skipped": {
+      "main": [
+        [
+          {
+            "node": "Respond Moderation Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  }
+}

@@ -1,0 +1,580 @@
+{
+  "name": "PeerLoop - Daily Ops Health & Archive Report",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 7,
+              "minute": 0
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "generatedAt",
+              "value": "={{$now.toISO()}}"
+            },
+            {
+              "name": "reportDate",
+              "value": "={{$now.toFormat('yyyy-LL-dd')}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2",
+      "name": "Report Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        360,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://api-gateway:8000/health",
+        "method": "GET",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "3",
+      "name": "Check API Gateway",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        620,
+        120
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "url": "http://auth_service:8001/health",
+        "method": "GET",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "4",
+      "name": "Check Auth Service",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        860,
+        120
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "url": "http://search_service:8000/health",
+        "method": "GET",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "5",
+      "name": "Check Search Service",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        120
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "url": "http://prometheus:9090/-/healthy",
+        "method": "GET",
+        "responseFormat": "string",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "6",
+      "name": "Check Prometheus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        120
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "functionCode": "const context = $items('Report Context', 0, 0)[0]?.json || {};\n\nfunction normalizeError(errorValue) {\n  if (!errorValue) return 'unknown_error';\n  if (typeof errorValue === 'string') return errorValue;\n  if (errorValue.message) return String(errorValue.message);\n  try {\n    return JSON.stringify(errorValue);\n  } catch (_e) {\n    return 'unserializable_error';\n  }\n}\n\nfunction readCheck(nodeName, service) {\n  const item = $items(nodeName, 0, 0)[0];\n  if (!item || !item.json) {\n    return { service, ok: false, error: 'no_output' };\n  }\n\n  const data = item.json;\n  const hasError = Object.prototype.hasOwnProperty.call(data, 'error');\n\n  if (hasError) {\n    return {\n      service,\n      ok: false,\n      error: normalizeError(data.error)\n    };\n  }\n\n  return {\n    service,\n    ok: true,\n    payload: data\n  };\n}\n\nconst checks = [\n  readCheck('Check API Gateway', 'api-gateway'),\n  readCheck('Check Auth Service', 'auth_service'),\n  readCheck('Check Search Service', 'search_service'),\n  readCheck('Check Prometheus', 'prometheus')\n];\n\nconst failedChecks = checks.filter((check) => !check.ok).map((check) => check.service);\nconst overallStatus = failedChecks.length > 0 ? 'degraded' : 'healthy';\n\nreturn [{\n  json: {\n    generatedAt: context.generatedAt || new Date().toISOString(),\n    reportDate: context.reportDate || new Date().toISOString().slice(0, 10),\n    overallStatus,\n    summary: `${checks.length - failedChecks.length}/${checks.length} checks healthy`,\n    failedChecks,\n    checks,\n    recommendedAction: failedChecks.length > 0\n      ? 'Investigate failing services and inspect docker compose logs.'\n      : 'No action required.'\n  }\n}];"
+      },
+      "id": "7",
+      "name": "Build Daily Report",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_REPORT_ARCHIVE_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "8",
+      "name": "Archive Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_REPORT_ARCHIVE_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'daily_ops_archive', generatedAt: $json.generatedAt, reportDate: $json.reportDate, overallStatus: $json.overallStatus, summary: $json.summary, failedChecks: $json.failedChecks, checks: $json.checks, recommendedAction: $json.recommendedAction }) }}"
+      },
+      "id": "9",
+      "name": "Archive Daily Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        2120,
+        60
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "archiveStatus",
+              "value": "skipped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10",
+      "name": "Mark Archive Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        2120,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "reportText",
+              "value": "={{ '[PeerLoop][Daily Ops][' + $json.overallStatus.toUpperCase() + '] ' + $json.summary + ' | failed=' + ($json.failedChecks.length ? $json.failedChecks.join(',') : 'none') + ' | date=' + $json.reportDate }}"
+            },
+            {
+              "name": "alertText",
+              "value": "={{ '[PeerLoop][ALERT][Daily Ops] Degraded services: ' + ($json.failedChecks.length ? $json.failedChecks.join(',') : 'unknown') + ' | date=' + $json.reportDate }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "11",
+      "name": "Build Notification Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_DAILY_REPORT_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "12",
+      "name": "Daily Report Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2120,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_DAILY_REPORT_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'daily_ops_report', text: $json.reportText, generatedAt: $json.generatedAt, reportDate: $json.reportDate, overallStatus: $json.overallStatus, summary: $json.summary, failedChecks: $json.failedChecks, checks: $json.checks, recommendedAction: $json.recommendedAction }) }}"
+      },
+      "id": "13",
+      "name": "Send Daily Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        2380,
+        300
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.overallStatus === 'degraded' ? 'true' : 'false'}}",
+              "operation": "equal",
+              "value2": "true"
+            }
+          ]
+        }
+      },
+      "id": "14",
+      "name": "Report Degraded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ALERT_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "15",
+      "name": "Alert Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ALERT_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'daily_ops_alert', text: $json.alertText, generatedAt: $json.generatedAt, reportDate: $json.reportDate, overallStatus: $json.overallStatus, failedChecks: $json.failedChecks, recommendedAction: $json.recommendedAction }) }}"
+      },
+      "id": "16",
+      "name": "Send Degraded Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        3160,
+        240
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "alertStatus",
+              "value": "not_configured"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "17",
+      "name": "Mark Alert Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        3160,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "alertStatus",
+              "value": "healthy_no_alert"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "18",
+      "name": "Mark Healthy",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        2900,
+        460
+      ]
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Report Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report Context": {
+      "main": [
+        [
+          {
+            "node": "Check API Gateway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check API Gateway": {
+      "main": [
+        [
+          {
+            "node": "Check Auth Service",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth Service": {
+      "main": [
+        [
+          {
+            "node": "Check Search Service",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Search Service": {
+      "main": [
+        [
+          {
+            "node": "Check Prometheus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Prometheus": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Report": {
+      "main": [
+        [
+          {
+            "node": "Archive Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Notification Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Archive Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Archive Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Notification Payload": {
+      "main": [
+        [
+          {
+            "node": "Daily Report Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Report Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Send Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report Degraded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Daily Report": {
+      "main": [
+        [
+          {
+            "node": "Report Degraded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report Degraded?": {
+      "main": [
+        [
+          {
+            "node": "Alert Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Healthy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Send Degraded Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Alert Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  }
+}

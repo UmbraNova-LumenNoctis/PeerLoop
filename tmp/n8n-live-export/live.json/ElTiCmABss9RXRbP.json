@@ -1,0 +1,496 @@
+{
+  "updatedAt": "2026-04-08T11:06:37.000Z",
+  "createdAt": "2026-04-08T10:57:17.138Z",
+  "id": "ElTiCmABss9RXRbP",
+  "name": "PeerLoop - Incident Triage & Alerting",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "peers/incident-events",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Incoming Incident Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const payload = $json.body ?? $json;\nconst requiredFields = ['source', 'eventType', 'severity', 'summary'];\n\nconst missing = requiredFields.filter((field) => {\n  const value = payload[field];\n  return value === undefined || value === null || String(value).trim() === '';\n});\n\nif (missing.length > 0) {\n  throw new Error(`Invalid payload: missing required fields (${missing.join(', ')})`);\n}\n\nconst severity = String(payload.severity).toLowerCase().trim();\nconst allowed = ['info', 'low', 'medium', 'high', 'critical'];\nif (!allowed.includes(severity)) {\n  throw new Error(`Invalid severity: '${payload.severity}'. Allowed: ${allowed.join(', ')}`);\n}\n\nconst correlationId = payload.correlationId && String(payload.correlationId).trim()\n  ? String(payload.correlationId).trim()\n  : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;\n\nreturn [{\n  json: {\n    source: String(payload.source).trim(),\n    eventType: String(payload.eventType).trim(),\n    severity,\n    summary: String(payload.summary).trim(),\n    details: payload.details ? String(payload.details) : '',\n    metadata: payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {},\n    occurredAt: payload.occurredAt ? String(payload.occurredAt) : new Date().toISOString(),\n    receivedAt: new Date().toISOString(),\n    correlationId,\n    escalate: severity === 'high' || severity === 'critical'\n  }\n}];"
+      },
+      "id": "2",
+      "name": "Validate & Normalize Event",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        360,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.escalate ? 'true' : 'false'}}",
+              "operation": "equal",
+              "value2": "true"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Escalation Required?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "route",
+              "value": "escalation"
+            },
+            {
+              "name": "channel",
+              "value": "ops-escalation"
+            },
+            {
+              "name": "notificationText",
+              "value": "={{ '[PeerLoop][' + $json.severity.toUpperCase() + '] ' + $json.summary + ' | source=' + $json.source + ' | correlationId=' + $json.correlationId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4",
+      "name": "Build Escalation Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        860,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "route",
+              "value": "standard"
+            },
+            {
+              "name": "channel",
+              "value": "ops-monitoring"
+            },
+            {
+              "name": "notificationText",
+              "value": "={{ '[PeerLoop][' + $json.severity.toUpperCase() + '] ' + $json.summary + ' | source=' + $json.source + ' | correlationId=' + $json.correlationId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5",
+      "name": "Build Standard Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        860,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ALERT_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "Slack Configured (Escalation)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ALERT_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ text: $json.notificationText, route: $json.route, channel: $json.channel, source: $json.source, eventType: $json.eventType, severity: $json.severity, summary: $json.summary, details: $json.details, occurredAt: $json.occurredAt, correlationId: $json.correlationId, metadata: $json.metadata }) }}"
+      },
+      "id": "7",
+      "name": "Notify Slack (Escalation)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1390,
+        120
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "boolean": [
+            {
+              "name": "slackAttempted",
+              "value": false
+            }
+          ],
+          "string": [
+            {
+              "name": "slackStatus",
+              "value": "not_configured"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8",
+      "name": "Mark Slack Skipped (Escalation)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1390,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 202,
+        "responseBody": "={{ ({ status: 'accepted', route: $node['Build Escalation Message'].json.route, correlationId: $node['Build Escalation Message'].json.correlationId, severity: $node['Build Escalation Message'].json.severity, slackAttempted: true, slackStatus: $json.error ? 'failed' : 'sent', receivedAt: $node['Build Escalation Message'].json.receivedAt }) }}"
+      },
+      "id": "9",
+      "name": "Respond Escalation (Slack Attempt)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1660,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 202,
+        "responseBody": "={{ ({ status: 'accepted', route: $node['Build Escalation Message'].json.route, correlationId: $node['Build Escalation Message'].json.correlationId, severity: $node['Build Escalation Message'].json.severity, slackAttempted: false, slackStatus: 'not_configured', receivedAt: $node['Build Escalation Message'].json.receivedAt }) }}"
+      },
+      "id": "10",
+      "name": "Respond Escalation (Skipped)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1660,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ALERT_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "11",
+      "name": "Slack Configured (Standard)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ALERT_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ text: $json.notificationText, route: $json.route, channel: $json.channel, source: $json.source, eventType: $json.eventType, severity: $json.severity, summary: $json.summary, details: $json.details, occurredAt: $json.occurredAt, correlationId: $json.correlationId, metadata: $json.metadata }) }}"
+      },
+      "id": "12",
+      "name": "Notify Slack (Standard)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1390,
+        360
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "boolean": [
+            {
+              "name": "slackAttempted",
+              "value": false
+            }
+          ],
+          "string": [
+            {
+              "name": "slackStatus",
+              "value": "not_configured"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "13",
+      "name": "Mark Slack Skipped (Standard)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1390,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseBody": "={{ ({ status: 'accepted', route: $node['Build Standard Message'].json.route, correlationId: $node['Build Standard Message'].json.correlationId, severity: $node['Build Standard Message'].json.severity, slackAttempted: true, slackStatus: $json.error ? 'failed' : 'sent', receivedAt: $node['Build Standard Message'].json.receivedAt }) }}"
+      },
+      "id": "14",
+      "name": "Respond Standard (Slack Attempt)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1660,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseBody": "={{ ({ status: 'accepted', route: $node['Build Standard Message'].json.route, correlationId: $node['Build Standard Message'].json.correlationId, severity: $node['Build Standard Message'].json.severity, slackAttempted: false, slackStatus: 'not_configured', receivedAt: $node['Build Standard Message'].json.receivedAt }) }}"
+      },
+      "id": "15",
+      "name": "Respond Standard (Skipped)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1660,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Incoming Incident Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Normalize Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Normalize Event": {
+      "main": [
+        [
+          {
+            "node": "Escalation Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalation Required?": {
+      "main": [
+        [
+          {
+            "node": "Build Escalation Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Standard Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Escalation Message": {
+      "main": [
+        [
+          {
+            "node": "Slack Configured (Escalation)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Configured (Escalation)?": {
+      "main": [
+        [
+          {
+            "node": "Notify Slack (Escalation)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Slack Skipped (Escalation)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Slack (Escalation)": {
+      "main": [
+        [
+          {
+            "node": "Respond Escalation (Slack Attempt)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Slack Skipped (Escalation)": {
+      "main": [
+        [
+          {
+            "node": "Respond Escalation (Skipped)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Standard Message": {
+      "main": [
+        [
+          {
+            "node": "Slack Configured (Standard)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Configured (Standard)?": {
+      "main": [
+        [
+          {
+            "node": "Notify Slack (Standard)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Slack Skipped (Standard)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Slack (Standard)": {
+      "main": [
+        [
+          {
+            "node": "Respond Standard (Slack Attempt)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Slack Skipped (Standard)": {
+      "main": [
+        [
+          {
+            "node": "Respond Standard (Skipped)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "d7b9a1c7-575f-46cb-a2b3-506193ac7450",
+  "activeVersionId": "d7b9a1c7-575f-46cb-a2b3-506193ac7450",
+  "versionCounter": 10,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-04-08T10:57:17.139Z",
+      "createdAt": "2026-04-08T10:57:17.139Z",
+      "role": "workflow:owner",
+      "workflowId": "ElTiCmABss9RXRbP",
+      "projectId": "rbpL6qQ0lfktZ0yg",
+      "project": {
+        "updatedAt": "2026-04-08T10:57:48.376Z",
+        "createdAt": "2026-04-08T10:57:12.710Z",
+        "id": "rbpL6qQ0lfktZ0yg",
+        "name": "Fitahiana Mickaël RANDRIANARIMALALA <fitrandr@student.42antananarivo.mg>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "d9f28149-8245-48c5-92f9-2020aa3e92f5"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

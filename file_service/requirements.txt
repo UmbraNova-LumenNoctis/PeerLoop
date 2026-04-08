@@ -1,0 +1,12 @@
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+prometheus-client==0.19.0
+
+python-multipart==0.0.9
+
+imagekitio==4.1.0
+
+python-magic==0.4.27
+supabase==1.1.1
+httpx==0.24.1
+hvac==2.1.0

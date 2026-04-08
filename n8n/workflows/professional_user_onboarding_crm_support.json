@@ -1,0 +1,597 @@
+{
+  "name": "PeerLoop - User Onboarding (CRM + Support)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "peers/user-onboarding-pro",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Onboarding Pro Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        120,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const payload = $json.body ?? $json;\n\nconst required = ['userId', 'username'];\nconst missing = required.filter((field) => {\n  const value = payload[field];\n  return value === undefined || value === null || String(value).trim() === '';\n});\n\nif (missing.length > 0) {\n  throw new Error(`Invalid onboarding payload: missing ${missing.join(', ')}`);\n}\n\nconst correlationId = payload.correlationId && String(payload.correlationId).trim()\n  ? String(payload.correlationId).trim()\n  : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;\n\nreturn [{\n  json: {\n    userId: String(payload.userId).trim(),\n    username: String(payload.username).trim(),\n    email: payload.email ? String(payload.email).trim() : '',\n    locale: payload.locale ? String(payload.locale).trim() : 'fr-FR',\n    plan: payload.plan ? String(payload.plan).trim() : 'free',\n    source: payload.source ? String(payload.source).trim() : 'signup',\n    registeredAt: payload.registeredAt ? String(payload.registeredAt) : new Date().toISOString(),\n    correlationId\n  }\n}];"
+      },
+      "id": "2",
+      "name": "Validate & Normalize User",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ONBOARDING_NOTIFICATION_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Notification Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        650,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ONBOARDING_NOTIFICATION_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'user_welcome_notification', userId: $node['Validate & Normalize User'].json.userId, title: 'Bienvenue sur PeerLoop', message: 'Bienvenue ' + $node['Validate & Normalize User'].json.username + ' ! Ton espace est prêt.', locale: $node['Validate & Normalize User'].json.locale, correlationId: $node['Validate & Normalize User'].json.correlationId }) }}"
+      },
+      "id": "4",
+      "name": "Send In-App Welcome",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        940,
+        160
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "notificationStatus",
+              "value": "skipped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5",
+      "name": "Mark Notification Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        940,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ONBOARDING_EMAIL_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "Email Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ONBOARDING_EMAIL_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'user_welcome_email', to: $node['Validate & Normalize User'].json.email, username: $node['Validate & Normalize User'].json.username, subject: 'Bienvenue sur PeerLoop', template: 'welcome_v1', locale: $node['Validate & Normalize User'].json.locale, correlationId: $node['Validate & Normalize User'].json.correlationId }) }}"
+      },
+      "id": "7",
+      "name": "Send Welcome Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1510,
+        160
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "emailStatus",
+              "value": "skipped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8",
+      "name": "Mark Email Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        1510,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ONBOARDING_CRM_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "CRM Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ONBOARDING_CRM_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'crm_contact_upsert', userId: $node['Validate & Normalize User'].json.userId, username: $node['Validate & Normalize User'].json.username, email: $node['Validate & Normalize User'].json.email, locale: $node['Validate & Normalize User'].json.locale, plan: $node['Validate & Normalize User'].json.plan, source: $node['Validate & Normalize User'].json.source, registeredAt: $node['Validate & Normalize User'].json.registeredAt, correlationId: $node['Validate & Normalize User'].json.correlationId }) }}"
+      },
+      "id": "10",
+      "name": "Upsert CRM Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        2060,
+        160
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "crmStatus",
+              "value": "skipped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "11",
+      "name": "Mark CRM Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        2060,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ONBOARDING_SUPPORT_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "12",
+      "name": "Support Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2330,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ONBOARDING_SUPPORT_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'support_onboarding_ticket', priority: 'low', category: 'onboarding', title: 'Onboarding review for ' + $node['Validate & Normalize User'].json.username, userId: $node['Validate & Normalize User'].json.userId, email: $node['Validate & Normalize User'].json.email, details: { plan: $node['Validate & Normalize User'].json.plan, source: $node['Validate & Normalize User'].json.source, locale: $node['Validate & Normalize User'].json.locale }, correlationId: $node['Validate & Normalize User'].json.correlationId }) }}"
+      },
+      "id": "13",
+      "name": "Create Support Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        2620,
+        160
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "supportStatus",
+              "value": "skipped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "14",
+      "name": "Mark Support Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        2620,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const user = $items('Validate & Normalize User', 0, 0)[0]?.json || {};\nconst attempted = (nodeName) => $items(nodeName, 0, 0).length > 0;\n\nreturn [{\n  json: {\n    type: 'onboarding_automation_audit',\n    userId: user.userId,\n    username: user.username,\n    email: user.email,\n    plan: user.plan,\n    source: user.source,\n    correlationId: user.correlationId,\n    startedAt: user.registeredAt,\n    finishedAt: new Date().toISOString(),\n    steps: {\n      notification: attempted('Send In-App Welcome') ? 'attempted' : 'skipped',\n      email: attempted('Send Welcome Email') ? 'attempted' : 'skipped',\n      crm: attempted('Upsert CRM Contact') ? 'attempted' : 'skipped',\n      support: attempted('Create Support Ticket') ? 'attempted' : 'skipped'\n    }\n  }\n}];"
+      },
+      "id": "15",
+      "name": "Build Onboarding Audit",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        2910,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ONBOARDING_AUDIT_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "16",
+      "name": "Audit Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        3200,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ONBOARDING_AUDIT_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify($json) }}"
+      },
+      "id": "17",
+      "name": "Push Onboarding Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        3480,
+        160
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "auditStatus",
+              "value": "skipped"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "18",
+      "name": "Mark Audit Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        3480,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "Onboarding Pro Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Normalize User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Normalize User": {
+      "main": [
+        [
+          {
+            "node": "Notification Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notification Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Send In-App Welcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Notification Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send In-App Welcome": {
+      "main": [
+        [
+          {
+            "node": "Email Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Notification Skipped": {
+      "main": [
+        [
+          {
+            "node": "Email Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Send Welcome Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Email Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Welcome Email": {
+      "main": [
+        [
+          {
+            "node": "CRM Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Email Skipped": {
+      "main": [
+        [
+          {
+            "node": "CRM Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Upsert CRM Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark CRM Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert CRM Contact": {
+      "main": [
+        [
+          {
+            "node": "Support Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark CRM Skipped": {
+      "main": [
+        [
+          {
+            "node": "Support Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Create Support Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Support Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Support Ticket": {
+      "main": [
+        [
+          {
+            "node": "Build Onboarding Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Support Skipped": {
+      "main": [
+        [
+          {
+            "node": "Build Onboarding Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Onboarding Audit": {
+      "main": [
+        [
+          {
+            "node": "Audit Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Push Onboarding Audit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Audit Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  }
+}

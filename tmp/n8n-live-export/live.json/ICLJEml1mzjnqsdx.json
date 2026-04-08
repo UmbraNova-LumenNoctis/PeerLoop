@@ -1,0 +1,393 @@
+{
+  "updatedAt": "2026-04-08T11:06:43.000Z",
+  "createdAt": "2026-04-08T10:57:17.143Z",
+  "id": "ICLJEml1mzjnqsdx",
+  "name": "PeerLoop - Weekly User Reactivation Campaign",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyWeek",
+              "hour": 9,
+              "minute": 0,
+              "weekday": "1"
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Weekly Schedule",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_REACTIVATION_SOURCE_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "2",
+      "name": "Reactivation Source Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "reactivationStatus",
+              "value": "source_endpoint_not_configured"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3",
+      "name": "Mark Source Missing",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        620,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_REACTIVATION_SOURCE_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 20000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'reactivation_candidates_request', inactiveDays: 14, limit: 200, generatedAt: $now.toISO() }) }}"
+      },
+      "id": "4",
+      "name": "Fetch Reactivation Candidates",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        620,
+        220
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "const output = $json;\n\nif (output.error) {\n  throw new Error(`Failed to fetch candidates: ${typeof output.error === 'string' ? output.error : JSON.stringify(output.error)}`);\n}\n\nconst rawCandidates = Array.isArray(output.candidates) ? output.candidates : [];\n\nconst candidates = rawCandidates\n  .filter((c) => c && c.userId && c.username)\n  .map((c) => ({\n    userId: String(c.userId).trim(),\n    username: String(c.username).trim(),\n    email: c.email ? String(c.email).trim() : '',\n    locale: c.locale ? String(c.locale).trim() : 'fr-FR',\n    inactiveDays: Number.isFinite(Number(c.inactiveDays)) ? Number(c.inactiveDays) : null,\n    lastActiveAt: c.lastActiveAt ? String(c.lastActiveAt) : null\n  }));\n\nconst campaignId = `${new Date().toISOString().slice(0, 10)}-reactivation`;\n\nreturn candidates.map((candidate) => ({\n  json: {\n    campaignId,\n    ...candidate\n  }\n}));"
+      },
+      "id": "5",
+      "name": "Normalize Candidate List",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        870,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "6",
+      "name": "Iterate Candidates",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [
+        1110,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_REACTIVATION_CAMPAIGN_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "7",
+      "name": "Campaign Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_REACTIVATION_CAMPAIGN_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'user_reactivation_campaign', campaignId: $json.campaignId, userId: $json.userId, username: $json.username, email: $json.email, locale: $json.locale, inactiveDays: $json.inactiveDays, lastActiveAt: $json.lastActiveAt, message: 'On ne t\\'a pas vu depuis un moment. Reviens sur PeerLoop pour retrouver tes amis et nouveautés.' }) }}"
+      },
+      "id": "8",
+      "name": "Send Reactivation Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        160
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_REACTIVATION_AUDIT_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "Audit Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_REACTIVATION_AUDIT_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'reactivation_delivery_audit', campaignId: $json.campaignId, userId: $json.userId, username: $json.username, channelAttempted: 'campaign_webhook', deliveryStatus: $json.error ? 'failed' : 'attempted', generatedAt: $now.toISO() }) }}"
+      },
+      "id": "10",
+      "name": "Push Reactivation Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        2120,
+        160
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "11",
+      "name": "Next Candidate",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2380,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Weekly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Reactivation Source Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reactivation Source Configured?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Reactivation Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Source Missing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Reactivation Candidates": {
+      "main": [
+        [
+          {
+            "node": "Normalize Candidate List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Candidate List": {
+      "main": [
+        [
+          {
+            "node": "Iterate Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Iterate Candidates": {
+      "main": [
+        [
+          {
+            "node": "Campaign Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Next Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Send Reactivation Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Audit Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reactivation Message": {
+      "main": [
+        [
+          {
+            "node": "Audit Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Push Reactivation Audit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Next Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push Reactivation Audit": {
+      "main": [
+        [
+          {
+            "node": "Next Candidate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next Candidate": {
+      "main": [
+        [
+          {
+            "node": "Iterate Candidates",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "024cf766-bfb4-4f81-a8cd-bd3531576896",
+  "activeVersionId": "024cf766-bfb4-4f81-a8cd-bd3531576896",
+  "versionCounter": 9,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-04-08T10:57:17.144Z",
+      "createdAt": "2026-04-08T10:57:17.144Z",
+      "role": "workflow:owner",
+      "workflowId": "ICLJEml1mzjnqsdx",
+      "projectId": "rbpL6qQ0lfktZ0yg",
+      "project": {
+        "updatedAt": "2026-04-08T10:57:48.376Z",
+        "createdAt": "2026-04-08T10:57:12.710Z",
+        "id": "rbpL6qQ0lfktZ0yg",
+        "name": "Fitahiana Mickaël RANDRIANARIMALALA <fitrandr@student.42antananarivo.mg>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "d9f28149-8245-48c5-92f9-2020aa3e92f5"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

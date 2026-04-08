@@ -1,0 +1,377 @@
+{
+  "updatedAt": "2026-04-08T11:06:39.000Z",
+  "createdAt": "2026-04-08T10:57:17.140Z",
+  "id": "nojjrXG3HUmIMrWe",
+  "name": "PeerLoop - User Onboarding Automation",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "peers/user-onboarding",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Onboarding Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        120,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const payload = $json.body ?? $json;\n\nconst required = ['userId', 'username'];\nconst missing = required.filter((field) => {\n  const value = payload[field];\n  return value === undefined || value === null || String(value).trim() === '';\n});\n\nif (missing.length > 0) {\n  throw new Error(`Invalid onboarding payload: missing ${missing.join(', ')}`);\n}\n\nconst correlationId = payload.correlationId && String(payload.correlationId).trim()\n  ? String(payload.correlationId).trim()\n  : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;\n\nreturn [{\n  json: {\n    userId: String(payload.userId).trim(),\n    username: String(payload.username).trim(),\n    email: payload.email ? String(payload.email).trim() : '',\n    locale: payload.locale ? String(payload.locale).trim() : 'fr-FR',\n    registeredAt: payload.registeredAt ? String(payload.registeredAt) : new Date().toISOString(),\n    correlationId\n  }\n}];"
+      },
+      "id": "2",
+      "name": "Validate Onboarding Payload",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ONBOARDING_NOTIFICATION_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Notification Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        640,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ONBOARDING_NOTIFICATION_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'user_welcome_notification', userId: $node['Validate Onboarding Payload'].json.userId, title: 'Bienvenue sur PeerLoop', message: 'Bienvenue ' + $node['Validate Onboarding Payload'].json.username + ' ! Ton espace est prêt.', locale: $node['Validate Onboarding Payload'].json.locale, correlationId: $node['Validate Onboarding Payload'].json.correlationId }) }}"
+      },
+      "id": "4",
+      "name": "Send In-App Welcome",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        920,
+        220
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ONBOARDING_EMAIL_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            },
+            {
+              "value1": "={{$node['Validate Onboarding Payload'].json.email || ''}}",
+              "operation": "regex",
+              "value2": ".+@.+"
+            }
+          ]
+        }
+      },
+      "id": "5",
+      "name": "Email Endpoint Configured? (After Notification)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ONBOARDING_EMAIL_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'user_welcome_email', to: $node['Validate Onboarding Payload'].json.email, username: $node['Validate Onboarding Payload'].json.username, subject: 'Bienvenue sur PeerLoop', template: 'welcome_v1', locale: $node['Validate Onboarding Payload'].json.locale, correlationId: $node['Validate Onboarding Payload'].json.correlationId }) }}"
+      },
+      "id": "6",
+      "name": "Send Welcome Email (After Notification)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        160
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "responseCode": 201,
+        "responseBody": "={{ ({ status: 'accepted', flow: 'notification_and_email_attempted', userId: $node['Validate Onboarding Payload'].json.userId, username: $node['Validate Onboarding Payload'].json.username, correlationId: $node['Validate Onboarding Payload'].json.correlationId }) }}"
+      },
+      "id": "7",
+      "name": "Respond Notification+Email Attempted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1740,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 201,
+        "responseBody": "={{ ({ status: 'accepted', flow: 'notification_attempted_email_skipped', userId: $node['Validate Onboarding Payload'].json.userId, username: $node['Validate Onboarding Payload'].json.username, correlationId: $node['Validate Onboarding Payload'].json.correlationId }) }}"
+      },
+      "id": "8",
+      "name": "Respond Notification Attempted Email Skipped",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1740,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_ONBOARDING_EMAIL_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            },
+            {
+              "value1": "={{$node['Validate Onboarding Payload'].json.email || ''}}",
+              "operation": "regex",
+              "value2": ".+@.+"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "Email Endpoint Configured? (Without Notification)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        920,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_ONBOARDING_EMAIL_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'user_welcome_email', to: $node['Validate Onboarding Payload'].json.email, username: $node['Validate Onboarding Payload'].json.username, subject: 'Bienvenue sur PeerLoop', template: 'welcome_v1', locale: $node['Validate Onboarding Payload'].json.locale, correlationId: $node['Validate Onboarding Payload'].json.correlationId }) }}"
+      },
+      "id": "10",
+      "name": "Send Welcome Email (Without Notification)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        380
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "responseCode": 201,
+        "responseBody": "={{ ({ status: 'accepted', flow: 'notification_skipped_email_attempted', userId: $node['Validate Onboarding Payload'].json.userId, username: $node['Validate Onboarding Payload'].json.username, correlationId: $node['Validate Onboarding Payload'].json.correlationId }) }}"
+      },
+      "id": "11",
+      "name": "Respond Notification Skipped Email Attempted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 201,
+        "responseBody": "={{ ({ status: 'accepted', flow: 'all_optional_steps_skipped', userId: $node['Validate Onboarding Payload'].json.userId, username: $node['Validate Onboarding Payload'].json.username, correlationId: $node['Validate Onboarding Payload'].json.correlationId }) }}"
+      },
+      "id": "12",
+      "name": "Respond All Optional Steps Skipped",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Onboarding Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Onboarding Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Onboarding Payload": {
+      "main": [
+        [
+          {
+            "node": "Notification Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notification Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Send In-App Welcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email Endpoint Configured? (Without Notification)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send In-App Welcome": {
+      "main": [
+        [
+          {
+            "node": "Email Endpoint Configured? (After Notification)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Endpoint Configured? (After Notification)": {
+      "main": [
+        [
+          {
+            "node": "Send Welcome Email (After Notification)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Notification Attempted Email Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Welcome Email (After Notification)": {
+      "main": [
+        [
+          {
+            "node": "Respond Notification+Email Attempted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Endpoint Configured? (Without Notification)": {
+      "main": [
+        [
+          {
+            "node": "Send Welcome Email (Without Notification)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond All Optional Steps Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Welcome Email (Without Notification)": {
+      "main": [
+        [
+          {
+            "node": "Respond Notification Skipped Email Attempted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "4993e411-3ae2-46bb-9162-6554a34c7177",
+  "activeVersionId": "4993e411-3ae2-46bb-9162-6554a34c7177",
+  "versionCounter": 10,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-04-08T10:57:17.141Z",
+      "createdAt": "2026-04-08T10:57:17.141Z",
+      "role": "workflow:owner",
+      "workflowId": "nojjrXG3HUmIMrWe",
+      "projectId": "rbpL6qQ0lfktZ0yg",
+      "project": {
+        "updatedAt": "2026-04-08T10:57:48.376Z",
+        "createdAt": "2026-04-08T10:57:12.710Z",
+        "id": "rbpL6qQ0lfktZ0yg",
+        "name": "Fitahiana Mickaël RANDRIANARIMALALA <fitrandr@student.42antananarivo.mg>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "d9f28149-8245-48c5-92f9-2020aa3e92f5"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

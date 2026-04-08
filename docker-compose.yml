@@ -1,0 +1,419 @@
+services:
+  # Frontend Service - React
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_SERVER_URL: ${VITE_API_SERVER_URL:-}
+    container_name: peerloop_frontend
+    expose:
+      - "3000"
+    environment:
+      - VITE_API_SERVER_URL=${VITE_API_SERVER_URL:-}
+      - NODE_ENV=production
+    networks:
+      - peerloop_net
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+  # API Gateway Service - FastAPI
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    container_name: peerloop_api
+    expose:
+      - 8000
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    networks:
+      - peerloop_net
+    depends_on:
+      auth_service:
+        condition: service_started
+      file_service:
+        condition: service_started
+      users_service:
+        condition: service_started
+      friendship_service:
+        condition: service_started
+      post_service:
+        condition: service_started
+      notification_service:
+        condition: service_started
+      chat_service:
+        condition: service_started
+      llm_service:
+        condition: service_started
+      search_service:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      vault:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Monitoring Service - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: peerloop_prometheus
+    expose:
+      - "9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.external-url=https://localhost:8443/services/prometheus/'
+      - '--web.route-prefix=/services/prometheus'
+    networks:
+      - peerloop_net
+    depends_on:
+      - node-exporter
+      - cadvisor
+    restart: unless-stopped
+
+  # Authentication Service
+  auth_service:
+    build:
+      context: .
+      dockerfile: auth_service/Dockerfile
+    container_name: peerloop_auth
+    expose:
+      - "8001"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # File Service
+  file_service:
+    build:
+      context: .
+      dockerfile: file_service/Dockerfile
+    container_name: peerloop_file
+    expose:
+      - "8002"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Users Service
+  users_service:
+    build:
+      context: .
+      dockerfile: users-service/Dockerfile
+    container_name: peerloop_users
+    expose:
+      - "8003"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Friendship Service
+  friendship_service:
+    build:
+      context: .
+      dockerfile: friendship-service/Dockerfile
+    container_name: peerloop_friendship
+    expose:
+      - "8004"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Post Service
+  post_service:
+    build:
+      context: .
+      dockerfile: post-service/Dockerfile
+    container_name: peerloop_post
+    expose:
+      - "8005"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Notification Service
+  notification_service:
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    container_name: peerloop_notification
+    expose:
+      - "8006"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Chat Service
+  chat_service:
+    build:
+      context: .
+      dockerfile: chat-service/Dockerfile
+    container_name: peerloop_chat
+    expose:
+      - "8007"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # LLM Service
+  llm_service:
+    build:
+      context: .
+      dockerfile: llm-service/Dockerfile
+    container_name: peerloop_llm
+    expose:
+      - "8008"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Search Service
+  search_service:
+    build:
+      context: .
+      dockerfile: search-service/Dockerfile
+    container_name: peerloop_search
+    expose:
+      - "8000"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - VAULT_TLS_VERIFY=${VAULT_TLS_VERIFY:-false}
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Monitoring Service - Grafana
+  grafana:
+    build:
+      context: ./grafana
+      dockerfile: Dockerfile
+    container_name: peerloop_grafana
+    expose:
+      - "3000"
+    environment:
+      - VAULT_ADDR=${VAULT_ADDR:-https://vault:8200}
+      - VAULT_TOKEN=${VAULT_TOKEN}
+      - GF_SERVER_ROOT_URL=https://localhost:8443/services/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SECURITY_ALLOW_EMBEDDING=false
+      - GF_SECURITY_COOKIE_SAMESITE=strict
+      - GF_SECURITY_X_CONTENT_TYPE_OPTIONS=true
+      - GF_SECURITY_X_XSS_PROTECTION=true
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - peerloop_net
+    depends_on:
+      prometheus:
+        condition: service_started
+      vault:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Workflow Automation Service - n8n
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: peerloop_n8n
+    expose:
+      - "5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - N8N_PATH=/services/n8n/
+      - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL:-https://localhost:8443/services/n8n/}
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-https://localhost:8443/services/n8n/}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-replace_me_with_32_plus_random_chars}
+      - N8N_PROXY_HOPS=${N8N_PROXY_HOPS:-1}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=${N8N_BLOCK_ENV_ACCESS_IN_NODE:-false}
+      - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE:-false}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-change_me}
+      - N8N_LOG_LEVEL=${N8N_LOG_LEVEL:-info}
+      - N8N_SECURE_COOKIE=true
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      - N8N_TEMPLATES_ENABLED=false
+      - TZ=${N8N_TIMEZONE:-UTC}
+      - GENERIC_TIMEZONE=${N8N_TIMEZONE:-UTC}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/opt/n8n/workflows:ro
+    networks:
+      - peerloop_net
+    depends_on:
+      api-gateway:
+        condition: service_started
+    restart: unless-stopped
+
+  # Monitoring Exporter - Host metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: peerloop_node_exporter
+    expose:
+      - "9100"
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)'
+    pid: host
+    volumes:
+      - '/:/host:ro,rslave'
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Monitoring Exporter - Container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: peerloop_cadvisor
+    privileged: true
+    expose:
+      - "8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Secrets Management Service - Vault
+  vault:
+    build:
+      context: ./vault
+      dockerfile: Dockerfile
+    container_name: peerloop_vault
+    ports:
+      - "8200:8200"
+    environment:
+      - VAULT_TOKEN=${VAULT_TOKEN}
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault_data:/vault/file
+      # Mount secrets.env so the entrypoint can seed Vault automatically.
+      # Create this file from secrets.env.example before running make up.
+      - ./secrets.env:/vault/secrets.env:ro
+    healthcheck:
+      test: ["CMD-SHELL", "VAULT_SKIP_VERIFY=true vault status -address=https://127.0.0.1:8200 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - peerloop_net
+    restart: unless-stopped
+
+  # Reverse Proxy - Nginx with ModSecurity (TLS edge)
+  nginx:
+    image: slacktomcat/nginx_modsecurity:3.23.0-1.29.4-1.0.4-4.21.0-1
+    container_name: peerloop_nginx
+    ports:
+      - "8443:443"
+      - "8444:4443"
+    volumes:
+      - ./nginx/conf/nginx.conf:/usr/local/nginx/conf/nginx.conf:ro
+      - ./nginx/conf/modsecurity.conf:/usr/local/nginx/conf/modsecurity.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    networks:
+      - peerloop_net
+    depends_on:
+      - api-gateway
+      - frontend
+    restart: unless-stopped
+
+networks:
+  peerloop_net:
+    driver: bridge
+    name: peerloop_network
+
+volumes:
+  prometheus_data:
+    name: peerloop_prometheus_data
+  grafana_data:
+    name: peerloop_grafana_data
+  vault_data:
+    name: peerloop_vault_data
+  n8n_data:
+    name: peerloop_n8n_data

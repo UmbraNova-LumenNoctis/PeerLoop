@@ -1,0 +1,139 @@
+{
+  "id": null,
+  "uid": "peerloop_platform_overview",
+  "title": "peerloop - Platform Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Service Availability (1=UP, 0=DOWN)",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (job) (up{job=~\"api-gateway|auth-service|file-service|users-service|friendship-service|post-service|notification-service|chat-service|llm-service\"})",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "HTTP Request Rate by Service",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (rate(http_requests_total{service!=\"\"}[5m]))",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "HTTP 5xx Error Ratio by Service",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (rate(http_requests_total{service!=\"\",status=~\"5..\"}[5m])) / clamp_min(sum by (service) (rate(http_requests_total{service!=\"\"}[5m])), 0.001)",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "HTTP p95 Latency by Service",
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (service, le) (rate(http_request_duration_seconds_bucket{service!=\"\"}[5m])))",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,316 @@
+{
+  "name": "PeerLoop - Failed Login Guard & Security Escalation",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "peers/security/auth-events",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Auth Security Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const payload = $json.body ?? $json;\n\nconst required = ['eventType', 'username', 'ipAddress'];\nconst missing = required.filter((field) => {\n  const value = payload[field];\n  return value === undefined || value === null || String(value).trim() === '';\n});\n\nif (missing.length > 0) {\n  throw new Error(`Invalid security payload: missing ${missing.join(', ')}`);\n}\n\nconst eventType = String(payload.eventType).toLowerCase().trim();\nconst allowed = ['failed_login', 'bruteforce_detected', 'account_locked'];\nif (!allowed.includes(eventType)) {\n  throw new Error(`Invalid eventType: ${eventType}. Allowed: ${allowed.join(', ')}`);\n}\n\nconst attemptsRaw = Number(payload.failedAttempts ?? 0);\nconst failedAttempts = Number.isFinite(attemptsRaw) ? Math.max(0, Math.floor(attemptsRaw)) : 0;\n\nlet severity = 'low';\nif (eventType === 'account_locked' || failedAttempts >= 10) {\n  severity = 'critical';\n} else if (eventType === 'bruteforce_detected' || failedAttempts >= 6) {\n  severity = 'high';\n} else if (failedAttempts >= 3) {\n  severity = 'medium';\n}\n\nconst correlationId = payload.correlationId && String(payload.correlationId).trim()\n  ? String(payload.correlationId).trim()\n  : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;\n\nreturn [{\n  json: {\n    eventType,\n    username: String(payload.username).trim(),\n    userId: payload.userId ? String(payload.userId).trim() : '',\n    ipAddress: String(payload.ipAddress).trim(),\n    failedAttempts,\n    userAgent: payload.userAgent ? String(payload.userAgent) : '',\n    occurredAt: payload.occurredAt ? String(payload.occurredAt) : new Date().toISOString(),\n    severity,\n    correlationId,\n    escalate: severity === 'high' || severity === 'critical',\n    blockRecommended: severity === 'critical'\n  }\n}];"
+      },
+      "id": "2",
+      "name": "Validate & Score Security Event",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.escalate ? 'true' : 'false'}}",
+              "operation": "equal",
+              "value2": "true"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Escalation Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        620,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "notificationText",
+              "value": "={{ '[PeerLoop][SECURITY][' + $json.severity.toUpperCase() + '] ' + $json.eventType + ' user=' + $json.username + ' ip=' + $json.ipAddress + ' attempts=' + $json.failedAttempts + ' correlationId=' + $json.correlationId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4",
+      "name": "Build Escalation Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        870,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseBody": "={{ ({ status: 'accepted', route: 'standard_monitoring', severity: $node['Validate & Score Security Event'].json.severity, correlationId: $node['Validate & Score Security Event'].json.correlationId }) }}"
+      },
+      "id": "5",
+      "name": "Respond Standard",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        870,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_SECURITY_ALERT_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "Security Alert Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_SECURITY_ALERT_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'security_auth_alert', text: $json.notificationText, eventType: $json.eventType, username: $json.username, userId: $json.userId, ipAddress: $json.ipAddress, failedAttempts: $json.failedAttempts, severity: $json.severity, occurredAt: $json.occurredAt, correlationId: $json.correlationId }) }}"
+      },
+      "id": "7",
+      "name": "Send Security Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1380,
+        120
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$env.N8N_SECURITY_BLOCK_WEBHOOK_URL || ''}}",
+              "operation": "regex",
+              "value2": "^https?://"
+            },
+            {
+              "value1": "={{$json.blockRecommended ? 'true' : 'false'}}",
+              "operation": "equal",
+              "value2": "true"
+            }
+          ]
+        }
+      },
+      "id": "8",
+      "name": "Auto Block Endpoint Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1640,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.N8N_SECURITY_BLOCK_WEBHOOK_URL}}",
+        "method": "POST",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 10000
+        },
+        "bodyParametersJson": "={{ JSON.stringify({ type: 'security_auto_block_request', username: $json.username, userId: $json.userId, ipAddress: $json.ipAddress, reason: 'critical_auth_signal', eventType: $json.eventType, failedAttempts: $json.failedAttempts, correlationId: $json.correlationId }) }}"
+      },
+      "id": "9",
+      "name": "Request Auto Block",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1900,
+        120
+      ],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "responseCode": 202,
+        "responseBody": "={{ ({ status: 'accepted', route: 'security_escalation', severity: $node['Validate & Score Security Event'].json.severity, blockRecommended: $node['Validate & Score Security Event'].json.blockRecommended, correlationId: $node['Validate & Score Security Event'].json.correlationId }) }}"
+      },
+      "id": "10",
+      "name": "Respond Escalated",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        180
+      ]
+    }
+  ],
+  "connections": {
+    "Auth Security Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Score Security Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Score Security Event": {
+      "main": [
+        [
+          {
+            "node": "Escalation Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalation Needed?": {
+      "main": [
+        [
+          {
+            "node": "Build Escalation Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Standard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Escalation Message": {
+      "main": [
+        [
+          {
+            "node": "Security Alert Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Security Alert Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Send Security Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auto Block Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Security Alert": {
+      "main": [
+        [
+          {
+            "node": "Auto Block Endpoint Configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto Block Endpoint Configured?": {
+      "main": [
+        [
+          {
+            "node": "Request Auto Block",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Escalated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request Auto Block": {
+      "main": [
+        [
+          {
+            "node": "Respond Escalated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true
+  }
+}

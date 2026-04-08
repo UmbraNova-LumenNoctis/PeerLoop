@@ -1,0 +1,74 @@
+groups:
+  - name: microservices-health
+    rules:
+      - alert: MicroserviceDown
+        expr: up{job=~"api-gateway|auth-service|file-service|users-service|friendship-service|post-service|notification-service|chat-service|llm-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Microservice down ({{ $labels.job }})"
+          description: "No scrape response from {{ $labels.job }} for more than 2 minutes."
+
+      - alert: HighHttp5xxRate
+        expr: (sum by(job) (rate(http_requests_total{job=~"api-gateway|auth-service|file-service|users-service|friendship-service|post-service|notification-service|chat-service|llm-service",status=~"5.."}[5m])) / clamp_min(sum by(job) (rate(http_requests_total{job=~"api-gateway|auth-service|file-service|users-service|friendship-service|post-service|notification-service|chat-service|llm-service"}[5m])), 0.001)) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.job }}"
+          description: "The 5xx ratio is above 5% for at least 5 minutes."
+
+      - alert: HighP95Latency
+        expr: histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket{job=~"api-gateway|auth-service|file-service|users-service|friendship-service|post-service|notification-service|chat-service|llm-service"}[5m]))) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High p95 latency on {{ $labels.job }}"
+          description: "p95 latency is above 1.5s for at least 10 minutes."
+
+  - name: infrastructure-health
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Node Exporter is down"
+          description: "Prometheus cannot scrape node-exporter."
+
+      - alert: CAdvisorDown
+        expr: up{job="cadvisor"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "cAdvisor is down"
+          description: "Prometheus cannot scrape cadvisor."
+
+      - alert: HighHostCpuUsage
+        expr: (100 - (avg by(instance) (rate(node_cpu_seconds_total{job="node-exporter",mode="idle"}[5m])) * 100)) > 85
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High host CPU usage on {{ $labels.instance }}"
+          description: "Host CPU usage has been above 85% for at least 10 minutes."
+
+      - alert: HighContainerMemoryUsage
+        expr: (container_memory_working_set_bytes{job="cadvisor",container!=""} / clamp_min(container_spec_memory_limit_bytes{job="cadvisor",container!=""}, 1)) > 0.9 and container_spec_memory_limit_bytes{job="cadvisor",container!=""} > 0
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High container memory usage on {{ $labels.container }}"
+          description: "Container memory usage has been above 90% of its limit for at least 10 minutes."

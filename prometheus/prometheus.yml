@@ -1,0 +1,89 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: "peerloop"
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: "prometheus"
+    metrics_path: "/services/prometheus/metrics"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "api-gateway"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["api-gateway:8000"]
+        labels:
+          environment: "production"
+
+  - job_name: "auth-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["auth_service:8001"]
+        labels:
+          environment: "production"
+
+  - job_name: "file-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["file_service:8002"]
+        labels:
+          environment: "production"
+
+  - job_name: "users-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["users_service:8003"]
+        labels:
+          environment: "production"
+
+  - job_name: "friendship-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["friendship_service:8004"]
+        labels:
+          environment: "production"
+
+  - job_name: "post-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["post_service:8005"]
+        labels:
+          environment: "production"
+
+  - job_name: "notification-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["notification_service:8006"]
+        labels:
+          environment: "production"
+
+  - job_name: "chat-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["chat_service:8007"]
+        labels:
+          environment: "production"
+
+  - job_name: "llm-service"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["llm_service:8008"]
+        labels:
+          environment: "production"
+
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          environment: "production"
+
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels:
+          environment: "production"
